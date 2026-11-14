@@ -15,12 +15,13 @@ use crate::{
 };
 
 #[cfg(feature = "app-store")]
-use super::app_store::{AppStoreClient, NotificationAction};
+use super::app_store::{AppStoreClient, AppStorePurchase, NotificationAction};
 #[cfg(feature = "play")]
 use super::play::PlayClient;
 #[cfg(feature = "stripe")]
-use super::stripe::{
-    CheckoutRequest, CheckoutSession, Event, StripeAction, StripeClient, route_event,
+use super::{
+    store::SubscriptionChange,
+    stripe::{CheckoutRequest, CheckoutSession, Event, StripeAction, StripeClient, route_event},
 };
 
 /// Why a request to the service failed.
@@ -175,24 +176,31 @@ impl<S: Store> PaymentsService<S> {
         owner: Option<&str>,
         proof: &PurchaseProof,
     ) -> Result<EntitlementSnapshot, PaymentsError> {
-        let purchase = self.verify_proof(proof).await?;
+        let verified = self.verify_proof(proof).await?;
         let Some(owner) = owner else {
-            return Ok(device_grant(&purchase, now_unix()));
+            return Ok(device_grant(&verified.purchase, now_unix()));
         };
         if let (Some(theirs), Some(ours)) = (
-            purchase.account_token.as_deref(),
+            verified.purchase.account_token.as_deref(),
             self.store.account_token(owner).await?,
         ) && !theirs.eq_ignore_ascii_case(&ours)
         {
             return Err(PaymentsError::NeedsOriginalAccount);
         }
-        self.store
-            .record(owner, active_record(purchase, now_unix()))
-            .await?;
+        let record = active_record(verified.purchase, now_unix());
+        match verified.app_store {
+            #[cfg(feature = "app-store")]
+            Some(app_store) => {
+                self.store
+                    .record_app_store(owner, &app_store, record)
+                    .await?
+            }
+            _ => self.store.record(owner, record).await?,
+        }
         self.snapshot(owner).await
     }
 
-    async fn verify_proof(&self, proof: &PurchaseProof) -> Result<VerifiedPurchase, PaymentsError> {
+    async fn verify_proof(&self, proof: &PurchaseProof) -> Result<Verified, PaymentsError> {
         match proof.provider {
             #[cfg(feature = "app-store")]
             Provider::AppStore => {
@@ -200,7 +208,11 @@ impl<S: Store> PaymentsService<S> {
                     .app_store
                     .as_ref()
                     .ok_or(PaymentsError::NotConfigured(Provider::AppStore))?;
-                Ok(client.verify(&self.catalog, proof).await?.into_verified()?)
+                let app_store = client.verify(&self.catalog, proof).await?;
+                Ok(Verified {
+                    purchase: app_store.clone().into_verified()?,
+                    app_store: Some(app_store),
+                })
             }
             #[cfg(feature = "play")]
             Provider::PlayStore => {
@@ -208,7 +220,10 @@ impl<S: Store> PaymentsService<S> {
                     .play
                     .as_ref()
                     .ok_or(PaymentsError::NotConfigured(Provider::PlayStore))?;
-                Ok(client.verify(&self.catalog, proof).await?)
+                Ok(Verified {
+                    purchase: client.verify(&self.catalog, proof).await?,
+                    app_store: None,
+                })
             }
             provider => Err(PaymentsError::NotConfigured(provider)),
         }
@@ -307,34 +322,20 @@ impl<S: Store> PaymentsService<S> {
                 let Some(product) = subscription.product(&self.catalog).cloned() else {
                     return Ok(WebhookOutcome::Ignored("other_product"));
                 };
-                let owner = match user {
-                    Some(user) => Some(user),
-                    None => match self
-                        .store
-                        .owner_of(Provider::Stripe, &subscription.id)
-                        .await?
-                    {
-                        Some(owner) => Some(owner),
-                        None => self.store.owner_of_customer(&subscription.customer).await?,
-                    },
-                };
-                let Some(owner) = owner else {
-                    return Ok(WebhookOutcome::Unlinked);
-                };
-                // Lapsed: owned until no later than the event that said so.
-                let expires = subscription
-                    .access_until()
-                    .unwrap_or(created.min(subscription.current_period_end));
-                let record = PurchaseRecord {
-                    provider: Provider::Stripe,
+                let change = SubscriptionChange {
                     product,
-                    id: subscription.id,
-                    aliases: Vec::new(),
-                    status: EntitlementStatus::Active,
-                    expires_at_unix: Some(expires),
+                    subscription,
+                    user,
+                    event_id: event.id.clone(),
+                    event_kind: event.kind.clone(),
                     event_created: created,
                 };
-                stored(self.store.record(&owner, record).await)
+                match self.store.record_stripe_subscription(change).await {
+                    Ok(Some(_)) => Ok(WebhookOutcome::Handled),
+                    Ok(None) => Ok(WebhookOutcome::Unlinked),
+                    Err(StoreError::ClaimedByAnother) => Ok(WebhookOutcome::Conflict),
+                    Err(error) => Err(error.into()),
+                }
             }
             StripeAction::Ignore(reason) => Ok(WebhookOutcome::Ignored(reason)),
         }
@@ -383,8 +384,18 @@ impl<S: Store> PaymentsService<S> {
             expires_at_unix: purchase.expires_at_unix,
             event_created: now_unix(),
         };
-        stored(self.store.record(&owner, record).await)
+        stored(self.store.record_app_store(&owner, &purchase, record).await)
     }
+}
+
+/// A verified purchase, and Apple's whole answer when it came from the App
+/// Store, for a store that keeps more than the purchase record.
+struct Verified {
+    purchase: VerifiedPurchase,
+    #[cfg(feature = "app-store")]
+    app_store: Option<AppStorePurchase>,
+    #[cfg(not(feature = "app-store"))]
+    app_store: Option<std::convert::Infallible>,
 }
 
 /// A write's result as an outcome: a claim conflict will not resolve on a
@@ -778,6 +789,112 @@ mod tests {
                     .unwrap()
                     .owns_at("membership", 999)
             );
+        }
+
+        /// Keeps every subscription change it is handed, as an app that
+        /// stores a subscription its own way does.
+        #[derive(Default)]
+        struct KeepsChanges {
+            inner: MemoryStore,
+            changes: std::sync::Mutex<Vec<SubscriptionChange>>,
+        }
+
+        impl Store for KeepsChanges {
+            async fn record(&self, owner: &str, record: PurchaseRecord) -> Result<(), StoreError> {
+                self.inner.record(owner, record).await
+            }
+
+            async fn update(
+                &self,
+                provider: Provider,
+                id: &str,
+                status: EntitlementStatus,
+                expires_at_unix: Option<i64>,
+                event_created: i64,
+            ) -> Result<Option<String>, StoreError> {
+                self.inner
+                    .update(provider, id, status, expires_at_unix, event_created)
+                    .await
+            }
+
+            async fn owner_of(
+                &self,
+                provider: Provider,
+                id: &str,
+            ) -> Result<Option<String>, StoreError> {
+                self.inner.owner_of(provider, id).await
+            }
+
+            async fn snapshot(&self, owner: &str) -> Result<EntitlementSnapshot, StoreError> {
+                self.inner.snapshot(owner).await
+            }
+
+            async fn event_seen(
+                &self,
+                provider: Provider,
+                event_id: &str,
+            ) -> Result<bool, StoreError> {
+                self.inner.event_seen(provider, event_id).await
+            }
+
+            async fn mark_event(
+                &self,
+                provider: Provider,
+                event_id: &str,
+            ) -> Result<(), StoreError> {
+                self.inner.mark_event(provider, event_id).await
+            }
+
+            async fn record_stripe_subscription(
+                &self,
+                change: SubscriptionChange,
+            ) -> Result<Option<String>, StoreError> {
+                self.changes.lock().unwrap().push(change);
+                Ok(Some("dave".into()))
+            }
+        }
+
+        #[tokio::test]
+        async fn a_store_that_keeps_subscriptions_its_own_way_gets_the_whole_change() {
+            let service = PaymentsService::new(catalog(), KeepsChanges::default()).with_stripe(
+                StripeClient::new(StripeConfig {
+                    secret_key: "sk_test".into(),
+                    webhook_secret: SECRET.into(),
+                    app: "swift-circuits".into(),
+                }),
+            );
+            let subscription = json!({
+                "id": "sub_1", "customer": "cus_1", "status": "past_due", "cancel_at": 5_000,
+                "metadata": { "user_id": "user:dave" },
+                "items": { "data": [ { "price": "price_annual", "current_period_end": 5_000 } ] },
+            });
+            let (payload, header) = delivery(
+                "evt_9",
+                "customer.subscription.deleted",
+                1_000,
+                subscription,
+            );
+            assert_eq!(
+                service.handle_stripe_webhook(&payload, &header).await,
+                Ok(WebhookOutcome::Handled)
+            );
+            let changes = service.store().changes.lock().unwrap();
+            let [change] = changes.as_slice() else {
+                panic!("one change");
+            };
+            assert_eq!(change.user.as_deref(), Some("user:dave"));
+            assert_eq!(
+                (change.event_id.as_str(), change.event_kind.as_str()),
+                ("evt_9", "customer.subscription.deleted")
+            );
+            assert_eq!(change.event_created, 1_000);
+            assert_eq!(change.product, ProductKey::from("membership"));
+            assert_eq!(
+                change.subscription.status,
+                crate::server::stripe::SubscriptionStatus::Canceled
+            );
+            assert!(change.subscription.cancel_at_period_end);
+            assert_eq!(change.record().expires_at_unix, Some(1_000));
         }
 
         #[tokio::test]

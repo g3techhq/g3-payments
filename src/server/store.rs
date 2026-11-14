@@ -37,6 +37,44 @@ pub struct PurchaseRecord {
     pub event_created: i64,
 }
 
+/// A Stripe subscription as Stripe has it after an event, for
+/// [`Store::record_stripe_subscription`].
+#[cfg(feature = "stripe")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubscriptionChange {
+    pub product: ProductKey,
+    pub subscription: super::stripe::Subscription,
+    /// The account the event names (`metadata.user_id`, or the checkout's
+    /// `client_reference_id`), if it names one. Unchecked: any Stripe
+    /// object's metadata can say it.
+    pub user: Option<String>,
+    pub event_id: String,
+    pub event_kind: String,
+    pub event_created: i64,
+}
+
+#[cfg(feature = "stripe")]
+impl SubscriptionChange {
+    /// As a purchase record: owned until the period end while Stripe counts
+    /// it as paid, and no later than the event that said otherwise.
+    pub fn record(&self) -> PurchaseRecord {
+        let subscription = &self.subscription;
+        PurchaseRecord {
+            provider: Provider::Stripe,
+            product: self.product.clone(),
+            id: subscription.id.clone(),
+            aliases: Vec::new(),
+            status: EntitlementStatus::Active,
+            expires_at_unix: Some(
+                subscription
+                    .access_until()
+                    .unwrap_or(self.event_created.min(subscription.current_period_end)),
+            ),
+            event_created: self.event_created,
+        }
+    }
+}
+
 /// Why a store refused or failed a write.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StoreError {
@@ -116,6 +154,56 @@ pub trait Store: Send + Sync {
     ) -> impl Future<Output = Result<Option<String>, StoreError>> + Send {
         let _ = owner;
         async { Ok(None) }
+    }
+
+    /// Stores a subscription's state after a Stripe event, and returns the
+    /// account it was stored for, or `None` if no account has it yet.
+    ///
+    /// The default finds the account the way most apps want (the account
+    /// the event names, else the one holding the subscription, else the
+    /// customer's) and [`record`](Self::record)s [`SubscriptionChange::record`].
+    /// A store that keeps more of the subscription (its raw status, a
+    /// scheduled cancellation) or chooses the account its own way overrides
+    /// it.
+    #[cfg(feature = "stripe")]
+    fn record_stripe_subscription(
+        &self,
+        change: SubscriptionChange,
+    ) -> impl Future<Output = Result<Option<String>, StoreError>> + Send {
+        async move {
+            let owner = match change.user.clone() {
+                Some(user) => Some(user),
+                None => match self
+                    .owner_of(Provider::Stripe, &change.subscription.id)
+                    .await?
+                {
+                    Some(owner) => Some(owner),
+                    None => {
+                        self.owner_of_customer(&change.subscription.customer)
+                            .await?
+                    }
+                },
+            };
+            let Some(owner) = owner else {
+                return Ok(None);
+            };
+            self.record(&owner, change.record()).await?;
+            Ok(Some(owner))
+        }
+    }
+
+    /// Stores an App Store purchase as Apple has it now, for `owner`.
+    /// `record` is what the default [`record`](Self::record)s; a store that
+    /// keeps more (auto-renewal, the revocation time) reads `purchase` too.
+    #[cfg(feature = "app-store")]
+    fn record_app_store(
+        &self,
+        owner: &str,
+        purchase: &super::app_store::AppStorePurchase,
+        record: PurchaseRecord,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send {
+        let _ = purchase;
+        self.record(owner, record)
     }
 
     /// What `owner` has, for its clients.

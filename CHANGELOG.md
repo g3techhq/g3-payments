@@ -56,6 +56,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `handle_stripe_webhook` and `handle_app_store_notification`. A purchase
   another account holds is `NeedsOriginalAccount` or a `Conflict` outcome,
   never a retry.
+- `Store::record_stripe_subscription` and `Store::record_app_store`, with
+  defaults that do what `PaymentsService` did before, so a store can keep a
+  subscription's raw status, scheduled cancellation and auto-renewal, and
+  choose the account a subscription event belongs to (Greenside Partee keeps
+  them on its `User`). `SubscriptionChange` carries the event.
+- `SubscriptionStatus::is_terminal`. A subscription with a `cancel_at` time
+  (how the billing portal schedules a cancellation) reads as
+  `cancel_at_period_end`, and `StripeClient::find_customer_subscription`
+  returns the newest one that is not over among the customer's ten newest,
+  as Greenside Partee's gateway did.
 - `server::routes`: `POST /stripe_webhooks` and
   `POST /app_store_notifications`, the paths both apps already use, for an
   app to mount under `/api/v1`.

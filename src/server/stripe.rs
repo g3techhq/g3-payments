@@ -389,6 +389,12 @@ impl SubscriptionStatus {
     pub fn grants_access(self) -> bool {
         matches!(self, Self::Active | Self::Trialing | Self::PastDue)
     }
+
+    /// Whether it is over for good: cancelled, or never paid and expired. A
+    /// customer whose subscriptions are all over can check out again.
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Canceled | Self::IncompleteExpired)
+    }
 }
 
 /// The fields of a Stripe subscription this crate reads.
@@ -401,6 +407,8 @@ pub struct Subscription {
     pub price: String,
     /// When the current paid period ends.
     pub current_period_end: i64,
+    /// It is set to end: at the period end, or at a `cancel_at` time, which
+    /// is how the billing portal schedules a cancellation.
     pub cancel_at_period_end: bool,
     pub metadata: BTreeMap<String, String>,
 }
@@ -434,7 +442,10 @@ impl Subscription {
             cancel_at_period_end: object
                 .get("cancel_at_period_end")
                 .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false),
+                .unwrap_or(false)
+                || object
+                    .get("cancel_at")
+                    .is_some_and(|cancel_at| !cancel_at.is_null()),
             metadata: object
                 .get("metadata")
                 .and_then(serde_json::Value::as_object)
@@ -464,6 +475,14 @@ impl Subscription {
             .then_some(self.current_period_end)
     }
 }
+/// The first subscription in a list, newest first, that is not over.
+fn first_open(subscriptions: &[serde_json::Value]) -> Option<Subscription> {
+    subscriptions
+        .iter()
+        .filter_map(Subscription::from_object)
+        .find(|subscription| !subscription.status.is_terminal())
+}
+
 /// A Checkout Session to start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckoutRequest {
@@ -591,7 +610,9 @@ impl StripeClient {
         Subscription::from_object(&object).ok_or(VerifyError::Rejected)
     }
 
-    /// The customer's newest subscription to `price`, in any status.
+    /// The customer's newest subscription to `price` that is not over
+    /// ([`SubscriptionStatus::is_terminal`]), among its ten newest. A
+    /// customer that Stripe no longer has is [`VerifyError::NotFound`].
     pub async fn find_customer_subscription(
         &self,
         customer: &str,
@@ -609,11 +630,11 @@ impl StripeClient {
                     ("customer", customer),
                     ("price", price),
                     ("status", "all"),
-                    ("limit", "1"),
+                    ("limit", "10"),
                 ],
             )
             .await?;
-        Ok(list.data.first().and_then(Subscription::from_object))
+        Ok(first_open(&list.data))
     }
 
     /// Ends a subscription now, not at the period end, for account deletion.
@@ -1163,6 +1184,41 @@ mod tests {
             .unwrap()
             .push(item);
         assert!(Subscription::from_object(&two_items).is_none());
+    }
+
+    #[test]
+    fn a_cancellation_the_portal_schedules_counts_as_cancelling() {
+        let mut scheduled = subscription_object();
+        scheduled["cancel_at"] = json!(NOW + 86_400);
+        assert!(
+            Subscription::from_object(&scheduled)
+                .unwrap()
+                .cancel_at_period_end
+        );
+        scheduled["cancel_at"] = Value::Null;
+        assert!(
+            !Subscription::from_object(&scheduled)
+                .unwrap()
+                .cancel_at_period_end
+        );
+    }
+
+    #[test]
+    fn a_customer_lookup_skips_subscriptions_that_are_over() {
+        let with_status = |id: &str, status: &str| {
+            let mut subscription = subscription_object();
+            subscription["id"] = json!(id);
+            subscription["status"] = json!(status);
+            subscription
+        };
+        let open = first_open(&[
+            with_status("sub_old", "canceled"),
+            with_status("sub_expired", "incomplete_expired"),
+            with_status("sub_open", "past_due"),
+        ])
+        .unwrap();
+        assert_eq!(open.id, "sub_open");
+        assert_eq!(first_open(&[with_status("sub_old", "canceled")]), None);
     }
 
     #[test]
