@@ -219,12 +219,22 @@ impl LicenseClient {
     }
 }
 
+/// The HTTP client for license requests. On Android it trusts the bundled
+/// Mozilla roots: reqwest's default verifier there needs JNI setup and a
+/// Kotlin component the apps do not ship, and would panic on the first HTTPS
+/// handshake. Other platforms keep the system's trust store.
 fn http() -> Result<reqwest::Client, ActivateError> {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = reqwest::Client::builder();
     #[cfg(not(target_arch = "wasm32"))]
     let builder = builder.timeout(std::time::Duration::from_secs(15));
+    #[cfg(target_os = "android")]
+    let builder = builder.tls_certs_only(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|cert| reqwest::Certificate::from_der(cert).ok()),
+    );
     builder
         .build()
         .map_err(|error| ActivateError::Unavailable(error.without_url().to_string()))

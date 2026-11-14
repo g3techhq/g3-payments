@@ -48,6 +48,10 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
 
+# Android: the license client trusts these bundled roots (see license::client).
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-root-certs = { version = "1", optional = true }
+
 # In the browser, ring's randomness comes from the Web Crypto API through
 # getrandom 0.2's `js` feature. Every wasm32 build here runs in a browser.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -81,7 +85,7 @@ apple-jws = ["dep:base64", "dep:getrandom", "dep:rustls-pki-types", "dep:serde_j
 native = []
 # Client, desktop and mobile: the trial clock, the offline license check, and
 # license activation. Signatures on ring, requests over reqwest on ring's TLS.
-license = ["dep:base64", "dep:getrandom", "dep:reqwest", "dep:ring", "dep:rustls", "dep:serde_json"]
+license = ["dep:base64", "dep:getrandom", "dep:reqwest", "dep:ring", "dep:rustls", "dep:serde_json", "dep:webpki-root-certs"]
 
 # Server: PaymentsService, the Store trait, and the webhook and license routes.
 server = ["dep:axum", "dep:base64", "dep:reqwest", "dep:ring", "dep:rustls", "dep:serde_json"]
