@@ -44,3 +44,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   directly at API version `2026-08-26.dahlia`, retrying network errors, 429s
   and 5xxs only where an idempotency key makes that safe. Reads both apps'
   existing env var names.
+- `server::store`: the `Store` trait an app implements over its own
+  database (record, update, owner lookups, account tokens, snapshots, event
+  de-duplication), and `MemoryStore` for tests. Every write carries its
+  provider event time and the newest wins, including an update that arrives
+  before the purchase it changes.
+- `server::service`: `PaymentsService` ties the catalog, a store and the
+  provider clients together: `verify_native` (claimed for a signed-in
+  account, or a device-only grant when signed out), `checkout`,
+  `handle_stripe_webhook` and `handle_app_store_notification`. A purchase
+  another account holds is `NeedsOriginalAccount` or a `Conflict` outcome,
+  never a retry.
+- `server::routes`: `POST /stripe_webhooks` and
+  `POST /app_store_notifications`, the paths both apps already use, for an
+  app to mount under `/api/v1`.

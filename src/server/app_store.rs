@@ -299,7 +299,7 @@ impl AppStoreClient {
     }
 
     #[cfg(test)]
-    fn with_verifier(config: AppStoreConfig, verifier: SignedDataVerifier) -> Self {
+    pub(crate) fn with_verifier(config: AppStoreConfig, verifier: SignedDataVerifier) -> Self {
         Self { config, verifier }
     }
 

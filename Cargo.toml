@@ -31,6 +31,8 @@ webpki = { package = "rustls-webpki", version = "0.103", default-features = fals
 reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls-no-provider"], optional = true }
 ring = { version = "0.17.14", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+# server: the webhook routes, for the axum an app's Dioxus server runs on.
+axum = { version = "0.8.9", default-features = false, optional = true }
 # stripe: the pause between retries.
 tokio = { version = "1.42", default-features = false, features = ["time"], optional = true }
 
@@ -64,7 +66,7 @@ native = []
 license = []
 
 # Server: PaymentsService, the Store trait, and the webhook and license routes.
-server = ["dep:base64", "dep:reqwest", "dep:ring", "dep:rustls", "dep:serde_json"]
+server = ["dep:axum", "dep:base64", "dep:reqwest", "dep:ring", "dep:rustls", "dep:serde_json"]
 # Stripe Checkout (one-time and subscription), billing portal, webhooks.
 stripe = ["server", "dep:tokio"]
 # App Store Server API and App Store Server Notifications V2.

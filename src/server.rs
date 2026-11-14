@@ -11,6 +11,10 @@
 
 use crate::entitlements::{ProductKey, Provider};
 
+pub mod routes;
+pub mod service;
+pub mod store;
+
 #[cfg(feature = "stripe")]
 pub mod stripe;
 
