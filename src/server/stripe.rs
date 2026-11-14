@@ -480,6 +480,10 @@ pub struct CheckoutRequest {
     pub automatic_tax: bool,
     /// Extra metadata, written beside the crate's own keys.
     pub metadata: BTreeMap<String, String>,
+    /// Extra top-level Checkout Session parameters this crate does not model
+    /// (Swift Circuits sends `integration_identifier`). Never `mode`,
+    /// `line_items`, `metadata` or the other fields set from this request.
+    pub params: BTreeMap<String, String>,
     /// Makes a retried request return the same session. Stripe allows 255
     /// characters.
     pub idempotency_key: String,
@@ -770,6 +774,14 @@ fn checkout_form(
     }
     if request.automatic_tax {
         form.push(("automatic_tax[enabled]".into(), "true".into()));
+    }
+    for (key, value) in &request.params {
+        if !form
+            .iter()
+            .any(|(name, _)| name == key || name.starts_with(&format!("{key}[")))
+        {
+            form.push((key.clone(), value.clone()));
+        }
     }
     for (key, value) in &metadata {
         form.push((format!("metadata[{key}]"), value.clone()));
@@ -1186,6 +1198,14 @@ mod tests {
                 ("purchase_origin".to_string(), "web".to_string()),
                 ("g3_app".to_string(), "forged".to_string()),
             ]),
+            params: BTreeMap::from([
+                (
+                    "integration_identifier".to_string(),
+                    "swift-circuits-test".to_string(),
+                ),
+                ("mode".to_string(), "setup".to_string()),
+                ("line_items".to_string(), "forged".to_string()),
+            ]),
             idempotency_key: "key".into(),
         }
     }
@@ -1229,6 +1249,14 @@ mod tests {
             );
         }
         assert!(field(&form, "subscription_data[metadata][g3_app]").is_none());
+        assert_eq!(
+            field(&form, "integration_identifier"),
+            Some("swift-circuits-test")
+        );
+        // A parameter the request sets itself cannot be replaced.
+        assert_eq!(field(&form, "mode"), Some("payment"));
+        assert_eq!(form.iter().filter(|(name, _)| name == "mode").count(), 1);
+        assert!(field(&form, "line_items").is_none());
     }
 
     #[test]

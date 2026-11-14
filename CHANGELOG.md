@@ -43,7 +43,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reads, finds and cancels subscriptions. Talks to Stripe's REST API
   directly at API version `2026-08-26.dahlia`, retrying network errors, 429s
   and 5xxs only where an idempotency key makes that safe. Reads both apps'
-  existing env var names.
+  existing env var names. `CheckoutRequest::params` passes extra top-level
+  Checkout parameters, without replacing any the request sets.
 - `server::store`: the `Store` trait an app implements over its own
   database (record, update, owner lookups, account tokens, snapshots, event
   de-duplication), and `MemoryStore` for tests. Every write carries its
