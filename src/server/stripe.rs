@@ -1347,11 +1347,11 @@ mod tests {
     #[test]
     fn keys_never_reach_debug_output() {
         let config = StripeConfig {
-            secret_key: "sk_live_secret".into(),
+            secret_key: "sk_test_redaction_canary".into(),
             webhook_secret: "whsec_secret".into(),
             app: "swift-circuits".into(),
         };
         let debug = format!("{:?}", StripeClient::new(config));
-        assert!(!debug.contains("sk_live_secret") && !debug.contains("whsec_secret"));
+        assert!(!debug.contains("sk_test_redaction_canary") && !debug.contains("whsec_secret"));
     }
 }
