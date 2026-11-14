@@ -28,9 +28,11 @@ webpki = { package = "rustls-webpki", version = "0.103", default-features = fals
 
 # server: provider calls over reqwest, with TLS and every signature on ring,
 # so this crate brings no second crypto backend into an app's server build.
-reqwest = { version = "0.13", default-features = false, features = ["json", "form", "rustls-no-provider"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls-no-provider"], optional = true }
 ring = { version = "0.17.14", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+# stripe: the pause between retries.
+tokio = { version = "1.42", default-features = false, features = ["time"], optional = true }
 
 # In the browser, ring's randomness comes from the Web Crypto API through
 # getrandom 0.2's `js` feature. Every wasm32 build here runs in a browser.
@@ -64,7 +66,7 @@ license = []
 # Server: PaymentsService, the Store trait, and the webhook and license routes.
 server = ["dep:base64", "dep:reqwest", "dep:ring", "dep:rustls", "dep:serde_json"]
 # Stripe Checkout (one-time and subscription), billing portal, webhooks.
-stripe = ["server"]
+stripe = ["server", "dep:tokio"]
 # App Store Server API and App Store Server Notifications V2.
 app-store = ["server", "apple-jws"]
 # Google Play Developer API verification.

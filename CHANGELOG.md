@@ -34,3 +34,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Partee), and routes App Store Server Notifications V2 for both. Unlike
   Swift Circuits' version, the device's transaction and Apple's API answer
   are both checked to Apple Root CA - G3 before they are read.
+- `server::stripe` (feature `stripe`): `verify_signature` and
+  `Event::verified` for webhooks; `route_event` turns an event into a
+  `StripeAction` (grant a paid one-time checkout, revoke on a full refund,
+  re-read a subscription) and ignores events tagged for another app;
+  `StripeClient` creates checkouts (one-time or subscription, tagged with
+  `g3_app`, `user_id` and `product_key`), customers and portal links, and
+  reads, finds and cancels subscriptions. Talks to Stripe's REST API
+  directly at API version `2026-08-26.dahlia`, retrying network errors, 429s
+  and 5xxs only where an idempotency key makes that safe. Reads both apps'
+  existing env var names.
