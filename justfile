@@ -1,5 +1,9 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
+# The SurrealDB store's tests run an in-memory database, which brings aws-lc;
+# its prebuilt objects spare a NASM install on Windows.
+export AWS_LC_SYS_PREBUILT_NASM := "1"
+
 default:
     @just --list
 
@@ -25,9 +29,11 @@ check:
     cargo check --features play
     cargo check --features license-server
     cargo check --features surreal
+    cargo check --features standalone --bins
     cargo check --all-features
     cargo check --target wasm32-unknown-unknown
     cargo check --target wasm32-unknown-unknown --features apple-jws
+    cargo check --target wasm32-unknown-unknown --features license
 
 lint:
     cargo clippy --all-targets --no-deps --all-features
@@ -41,6 +47,8 @@ lint-strict:
     cargo clippy --all-targets --no-deps --features play -- -D warnings
     cargo clippy --all-targets --no-deps --features app-store -- -D warnings
     cargo clippy --all-targets --no-deps --features stripe -- -D warnings
+    cargo clippy --all-targets --no-deps --features license-server -- -D warnings
+    cargo clippy --all-targets --no-deps --features standalone -- -D warnings
     cargo clippy --no-deps --target wasm32-unknown-unknown --features apple-jws -- -D warnings
 
 test:
@@ -75,3 +83,7 @@ style-report:
 
 style-test:
     node --test scripts/rust-style.test.mjs
+
+# The g3-payments-server image, from the working tree's committed HEAD.
+image tag="g3-payments-server:dev":
+    git archive --format=tar HEAD | docker build -t {{tag}} -
