@@ -14,7 +14,11 @@ use g3_payments::server::{
     standalone::{Config, Server},
     surreal::SurrealStore,
 };
-use surrealdb::{Surreal, engine::any::Any, opt::auth::Root};
+use surrealdb::{
+    Surreal,
+    engine::any::Any,
+    opt::auth::{Database, Namespace, Root},
+};
 
 #[tokio::main]
 async fn main() {
@@ -57,15 +61,37 @@ async fn connect() -> Result<Surreal<Any>, String> {
     let db = surrealdb::engine::any::connect(host.as_str())
         .await
         .map_err(|error| format!("database: {error}"))?;
+    let namespace = env("SURREALDB_NAMESPACE", Some("g3-payments"))?;
+    let database = env("SURREALDB_NAME", Some("production"))?;
     if let (Ok(username), Ok(password)) =
         (env("SURREALDB_USER", None), env("SURREALDB_PASSWORD", None))
     {
-        db.signin(Root { username, password })
-            .await
-            .map_err(|error| format!("database sign-in: {error}"))?;
+        // `database` for the server's own user (g3-platform's settings),
+        // `root` for the migration identity.
+        let signed_in = match env("SURREALDB_AUTH_LEVEL", Some("root"))?.as_str() {
+            "database" => db
+                .signin(Database {
+                    namespace: namespace.clone(),
+                    database: database.clone(),
+                    username,
+                    password,
+                })
+                .await
+                .map(drop),
+            "namespace" => db
+                .signin(Namespace {
+                    namespace: namespace.clone(),
+                    username,
+                    password,
+                })
+                .await
+                .map(drop),
+            _ => db.signin(Root { username, password }).await.map(drop),
+        };
+        signed_in.map_err(|error| format!("database sign-in: {error}"))?;
     }
-    db.use_ns(env("SURREALDB_NAMESPACE", Some("g3-payments"))?)
-        .use_db(env("SURREALDB_NAME", Some("production"))?)
+    db.use_ns(namespace)
+        .use_db(database)
         .await
         .map_err(|error| format!("database: {error}"))?;
     Ok(db)
@@ -83,9 +109,11 @@ async fn migrate() -> Result<(), String> {
 async fn serve() -> Result<(), String> {
     let config = Config::from_env()?;
     let db = connect().await?;
-    SurrealStore::apply_schema(&db)
-        .await
-        .map_err(|error| error.to_string())?;
+    // On g3-platform `migrate start` loads the schema, and the server's own
+    // user may not define tables; elsewhere this saves a step.
+    if let Err(error) = SurrealStore::apply_schema(&db).await {
+        tracing::warn!(%error, "schema_not_applied_at_start");
+    }
     let port = config.port;
     let apps: Vec<String> = config.apps.iter().map(|app| app.id.clone()).collect();
     let router = Server::new(&config, db)?.router();

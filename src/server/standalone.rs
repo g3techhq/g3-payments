@@ -59,6 +59,8 @@ pub struct Server {
     pub apps: Arc<BTreeMap<String, App>>,
     /// Each app's Stripe client, for the thanks page's lookup.
     pub stripe: BTreeMap<String, StripeClient>,
+    /// For the readiness check.
+    pub db: surrealdb::Surreal<surrealdb::engine::any::Any>,
 }
 
 /// The settings for one app, before the database is connected.
@@ -188,6 +190,7 @@ impl Server {
             public_url: config.public_url.clone(),
             apps: Arc::new(apps),
             stripe: clients,
+            db,
         })
     }
 
@@ -197,6 +200,7 @@ impl Server {
         let state = Arc::new(self);
         Router::new()
             .route("/healthz", get(|| async { "ok" }))
+            .route("/api/v1/health/ready", get(ready))
             .route("/", get(home))
             .route("/apps/{app}/buy", get(buy))
             .route("/apps/{app}/thanks", get(thanks))
@@ -208,6 +212,14 @@ impl Server {
 }
 
 type Shared = State<Arc<Server>>;
+
+/// Ready once the database answers.
+async fn ready(State(server): Shared) -> StatusCode {
+    match server.db.query("RETURN 1;").await {
+        Ok(_) => StatusCode::OK,
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
 
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
