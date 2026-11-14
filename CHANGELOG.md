@@ -24,3 +24,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `apple_jws` (feature `apple-jws`): `SignedDataVerifier`, moved from
   Greenside Partee. Checks Apple's signed data to Apple Root CA - G3, and
   builds for the browser and phones as well as the server.
+- `server`: `VerifiedPurchase` and `VerifyError`, shared by every provider.
+  TLS and every token signature run on ring, so no second crypto backend
+  (aws-lc) enters a server build through this crate.
+- `server::play` (feature `play`): `PlayClient` verifies one-time Play
+  purchases, moved from Swift Circuits. Subscriptions answer `Unsupported`.
+- `server::app_store` (feature `app-store`): `AppStoreClient` verifies
+  one-time purchases (from Swift Circuits) and subscriptions (from Greenside
+  Partee), and routes App Store Server Notifications V2 for both. Unlike
+  Swift Circuits' version, the device's transaction and Apple's API answer
+  are both checked to Apple Root CA - G3 before they are read.

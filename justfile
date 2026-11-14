@@ -37,6 +37,9 @@ lint-strict:
     cargo clippy --no-deps -- -D warnings
     cargo clippy --no-deps --features native -- -D warnings
     cargo clippy --no-deps --features license -- -D warnings
+    cargo clippy --all-targets --no-deps --features server -- -D warnings
+    cargo clippy --all-targets --no-deps --features play -- -D warnings
+    cargo clippy --all-targets --no-deps --features app-store -- -D warnings
     cargo clippy --no-deps --target wasm32-unknown-unknown --features apple-jws -- -D warnings
 
 test:
