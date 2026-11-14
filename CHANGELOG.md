@@ -8,6 +8,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `license` (feature `license`): the 14-day trial clock, which never runs
+  backwards when the clock is set back; the Ed25519-signed license file,
+  checked offline and bound to one app and machine; `LicenseState`, kept in
+  the app's data folder; and `LicenseClient` for activation, the 30-day
+  re-check and deactivation. A re-check locks only on an answer of
+  `revoked`; a server that cannot be reached never locks anyone out. Builds
+  for the browser and phones too.
+- `server::license_keys` (feature `license-server`): license keys
+  (`TALLY-XXXXX-...`), machine-limited activation (`Activations`), license
+  signing (`LicenseSigner`), and the routes
+  `POST /apps/{app}/licenses/{activate,check,deactivate}`. A refund revokes
+  the key on every machine.
+- `server::surreal` (feature `surreal`): `SurrealStore`, the `Store` and
+  `Activations` on SurrealDB, several apps to one database, with its schema
+  in `SCHEMA`.
+- `StripeClient::checkout_status`, for a Checkout return page.
+- `g3-payments-server` (feature `standalone`): Stripe Checkout and license
+  keys for apps with no server of their own, several apps per process,
+  configured from the environment. `GET /apps/{app}/buy` starts Checkout
+  for a new key and `/thanks` shows it once paid; each app has its own
+  webhook at `/api/v1/apps/{app}/stripe_webhooks`. `migrate start`, and
+  `gen-key` for a new signing key. A Dockerfile builds its image with the
+  pinned `ci/server.Cargo.lock`.
 - The crate's modules and features: `entitlements`, `catalog`, `apple-jws`,
   `native`, `license`, and `server` with `stripe`, `app-store`, `play`,
   `license-server` and `surreal`.
