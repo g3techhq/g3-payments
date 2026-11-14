@@ -516,6 +516,17 @@ pub struct CheckoutSession {
     pub url: String,
 }
 
+/// A Checkout Session as a return page sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckoutStatus {
+    /// Its `g3_app` tag.
+    pub app: Option<String>,
+    /// Who it was made for.
+    pub user: Option<String>,
+    /// Paid, or needing no payment.
+    pub paid: bool,
+}
+
 /// Talks to Stripe's API for one app.
 #[derive(Clone, Debug)]
 pub struct StripeClient {
@@ -599,6 +610,26 @@ impl StripeClient {
         let portal: SessionResponse = self.post("/billing_portal/sessions", &form, None).await?;
         portal.url.ok_or_else(|| {
             VerifyError::Unavailable("Stripe returned a portal without a URL".into())
+        })
+    }
+
+    /// Where a Checkout Session stands, for a return page. The page may show
+    /// what was bought, but grants nothing: the webhook does.
+    pub async fn checkout_status(&self, id: &str) -> Result<CheckoutStatus, VerifyError> {
+        let object: serde_json::Value = self
+            .get(&format!("/checkout/sessions/{}", path_id(id)?), &[])
+            .await?;
+        let field = |pointer: &str| {
+            object
+                .pointer(pointer)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        };
+        Ok(CheckoutStatus {
+            app: field(&format!("/metadata/{META_APP}")),
+            user: field(&format!("/metadata/{META_USER}"))
+                .or_else(|| field("/client_reference_id")),
+            paid: field("/payment_status").is_some_and(|status| status != "unpaid"),
         })
     }
 

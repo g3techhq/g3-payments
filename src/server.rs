@@ -30,6 +30,9 @@ pub mod license_keys;
 #[cfg(feature = "surreal")]
 pub mod surreal;
 
+#[cfg(feature = "standalone")]
+pub mod standalone;
+
 #[cfg(any(feature = "app-store", feature = "play"))]
 pub(crate) mod jwt;
 
@@ -109,12 +112,7 @@ impl From<reqwest::Error> for VerifyError {
 /// on ring. Installing ring as rustls' default provider is a no-op when the
 /// app already installed one.
 #[cfg_attr(
-    not(any(
-        feature = "app-store",
-        feature = "play",
-        feature = "stripe",
-        feature = "license-server"
-    )),
+    not(any(feature = "app-store", feature = "play", feature = "stripe")),
     allow(dead_code, reason = "Used by the provider features.")
 )]
 pub(crate) fn http_client() -> Result<reqwest::Client, VerifyError> {
@@ -145,12 +143,7 @@ pub(crate) fn now_unix() -> i64 {
 /// A required environment variable, with `\n` escapes turned into newlines
 /// so a PEM key fits on one line of an env file.
 #[cfg_attr(
-    not(any(
-        feature = "app-store",
-        feature = "play",
-        feature = "stripe",
-        feature = "license-server"
-    )),
+    not(any(feature = "app-store", feature = "play", feature = "stripe")),
     allow(dead_code, reason = "Used by the provider features.")
 )]
 pub(crate) fn env_value(name: &str) -> Result<String, VerifyError> {
