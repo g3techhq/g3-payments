@@ -1,0 +1,222 @@
+<title>g3-payments Migration Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, wide tables scroll in place; status chips mark what moves, what is new, what stays */
+:root{
+  --bg:#f6f7f8; --surface:#ffffff; --fg:#1b2127; --muted:#5b6670; --line:#dde2e6;
+  --accent:#0f7a63; --accent-soft:#e3f2ee; --new:#6a4bc4; --new-soft:#eeeafa; --stay:#8a6a12; --stay-soft:#f7f0dc;
+  --risk:#b4372b; --risk-soft:#fbe9e7; --code-bg:#eef1f3;
+  --f-head:"Instrument Sans",system-ui,sans-serif; --f-body:"Instrument Sans",system-ui,sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12171b; --surface:#1a2026; --fg:#e4e8eb; --muted:#9aa5ae; --line:#2b333a;
+  --accent:#4cc3a5; --accent-soft:#163a32; --new:#a993f0; --new-soft:#2a2346; --stay:#e0bd5c; --stay-soft:#3a3018;
+  --risk:#f08a7e; --risk-soft:#3d1f1c; --code-bg:#222a31; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12171b; --surface:#1a2026; --fg:#e4e8eb; --muted:#9aa5ae; --line:#2b333a;
+  --accent:#4cc3a5; --accent-soft:#163a32; --new:#a993f0; --new-soft:#2a2346; --stay:#e0bd5c; --stay-soft:#3a3018;
+  --risk:#f08a7e; --risk-soft:#3d1f1c; --code-bg:#222a31; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:16px;line-height:1.6}
+.wrap{max-width:860px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:44px}
+header{display:flex;flex-direction:column;gap:10px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-family:var(--f-head);font-size:clamp(28px,5vw,40px);line-height:1.15;margin:0;text-wrap:balance;font-weight:700}
+h2{font-family:var(--f-head);font-size:22px;margin:0;text-wrap:balance;font-weight:600}
+h3{font-family:var(--f-head);font-size:17px;margin:0;font-weight:600}
+p{margin:0;max-width:68ch} .lede{font-size:18px;color:var(--muted)}
+section{display:flex;flex-direction:column;gap:14px}
+ul,ol{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;max-width:70ch}
+code{font-family:var(--f-mono);font-size:.88em;background:var(--code-bg);padding:1px 5px;border-radius:4px}
+pre{font-family:var(--f-mono);font-size:13px;line-height:1.55;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;margin:0;overflow-x:auto}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
+th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--bg)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.chip{display:inline-block;font-family:var(--f-mono);font-size:11px;padding:1px 7px;border-radius:999px;white-space:nowrap}
+.move{background:var(--accent-soft);color:var(--accent)} .new{background:var(--new-soft);color:var(--new)}
+.stay{background:var(--stay-soft);color:var(--stay)} .risk{background:var(--risk-soft);color:var(--risk)}
+.note{border-left:3px solid var(--risk);background:var(--risk-soft);padding:12px 16px;border-radius:0 8px 8px 0;display:flex;flex-direction:column;gap:6px}
+.steps{list-style:none;padding:0;counter-reset:s;gap:14px}
+.steps>li{counter-increment:s;display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}
+.steps>li::before{content:counter(s);font-family:var(--f-mono);font-size:13px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--accent);color:var(--accent)}
+.steps>li>div{min-width:0;display:flex;flex-direction:column;gap:4px}
+.steps ul{font-size:15px;color:var(--fg)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card ul{font-size:15px}
+.small{font-size:14px;color:var(--muted)}
+a{color:var(--accent)} :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Plan · 13 Nov 2026 · Swift Circuits, Greenside Partee, SkiCut, Tally, Ad Sentinel</div>
+  <h1>Move all payments into one g3-payments crate</h1>
+  <p class="lede">Every app that takes money gets it through one crate. <code>g3-entitlements</code> folds into it, the Stripe and Apple code that exists twice today becomes one copy, and SkiCut, Tally and Ad Sentinel get trials and paid unlocks from the same code.</p>
+</header>
+
+<section>
+  <h2>What exists today</h2>
+  <div class="scroll"><table>
+    <tr><th>App</th><th>Platform</th><th>Server</th><th>Payments today</th></tr>
+    <tr><td>Swift Circuits</td><td>Web, iOS, Android</td><td>Dioxus fullstack + SurrealDB</td><td>One-time unlocks. Stripe Checkout (raw <code>reqwest</code> + HMAC), Apple Server API, Google Play Publisher API. About 2,400 lines plus the 320-line <code>g3-entitlements</code>.</td></tr>
+    <tr><td>Greenside Partee</td><td>Web, iOS</td><td>Dioxus fullstack + SurrealDB</td><td>Subscriptions. <code>async-stripe</code> rc.6 with customers and billing portal, full Apple JWS chain check to Apple Root CA G3, App Store Server Notifications V2. About 6,300 lines.</td></tr>
+    <tr><td>SkiCut</td><td>Windows desktop</td><td><span class="chip risk">none</span></td><td>None.</td></tr>
+    <tr><td>Tally</td><td>Desktop</td><td><span class="chip risk">none</span> (embedded SurrealDB in an encrypted books file)</td><td>None. Each user brings their own Plaid keys, so bank downloads cost you nothing per user.</td></tr>
+    <tr><td>Ad Sentinel</td><td>Android first, then iOS</td><td><span class="chip risk">none</span> (its manifest says so)</td><td>None.</td></tr>
+  </table></div>
+  <div class="note">
+    <h3>Two facts that shape the plan</h3>
+    <p>Ad Sentinel is a phone app, so in Google Play and the App Store it must sell through store billing, not Stripe license keys. And SkiCut, Tally and Ad Sentinel have no server, so the crate must also run as a small standalone server for apps that have none.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The crate</h2>
+  <p>One repository, <code>g3techhq/g3-payments</code>, same conventions as <code>g3-cache</code> (AGENTS.md, CHANGELOG, deny.toml, justfile, lefthook, CI workflows). Unpublished git dependency until Dioxus 0.8, like the other g3 crates, and added to <code>Projects/.cargo/config.toml</code> for local builds.</p>
+<pre>g3-payments
+├── entitlements        always on. ProductKey, Provider, Entitlement, Snapshot, PurchaseProof
+│                       (g3-entitlements moved in, re-exported at the crate root)
+├── catalog             always on. Product list type: key ↔ Stripe price ↔ App Store id ↔ Play id,
+│                       permanent or subscription. Each app supplies the data.
+├── apple_jws           feature "apple-jws": signed-data check to Apple Root CA G3 (from Greenside).
+│                       Pure Rust, so it also runs on a phone.
+├── native              feature "native": purchase coordinator over g3-native-plugins StoreKit/Play,
+│                       pending-receipt checkpoints, restore (from Swift Circuits)
+├── license             feature "license": 14-day trial clock, offline Ed25519 license check,
+│                       activation and 30-day re-check that never locks on a dead server  [new]
+└── server              feature "server": PaymentsService, Store trait, axum routes for webhooks
+    ├── stripe            feature "stripe": checkout, subscriptions, portal, webhook verify
+    ├── app_store         feature "app-store": Server API, Notifications V2
+    ├── play              feature "play": Publisher API verification
+    ├── license_keys      feature "license-server": issue keys, activate, sign            [new]
+    ├── surreal           feature "surreal": Store implementation on SurrealDB 3.2.4
+    └── bin               feature "standalone": g3-payments-server binary for apps with no server [new]</pre>
+  <div class="scroll"><table>
+    <tr><th>App</th><th>Client features</th><th>Server features</th></tr>
+    <tr><td>Swift Circuits</td><td><code>native</code></td><td><code>server stripe app-store play</code> (mounted in its own server, its own Store impl)</td></tr>
+    <tr><td>Greenside Partee</td><td><code>native</code></td><td><code>server stripe app-store</code> (mounted in its own server, own Store impl)</td></tr>
+    <tr><td>SkiCut</td><td><code>license</code></td><td>standalone server: <code>stripe license-server surreal</code></td></tr>
+    <tr><td>Tally</td><td><code>license</code></td><td>the same standalone server, as a second app in its config</td></tr>
+    <tr><td>Ad Sentinel</td><td><code>native apple-jws license</code> (trial clock only)</td><td>none needed: purchases checked on the phone</td></tr>
+  </table></div>
+</section>
+<section>
+  <h2>Where each piece comes from</h2>
+  <p class="small"><span class="chip move">moves</span> goes into the crate · <span class="chip stay">stays</span> remains in the app as product policy or a thin wrapper · <span class="chip new">new</span> written fresh</p>
+  <div class="scroll"><table>
+    <tr><th>Today</th><th>Lines</th><th>Goes to</th><th></th></tr>
+    <tr><td><code>swift-circuits/crates/g3-entitlements</code></td><td>323</td><td><code>entitlements</code></td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>SC <code>payments.rs</code>: Apple and Play verification</td><td rowspan="3">975</td><td><code>server::app_store</code>, <code>server::play</code></td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>SC <code>payments.rs</code>: Stripe Checkout + webhook</td><td>replaced by Greenside's gateway in <code>server::stripe</code>, one-time mode</td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>SC <code>payments.rs</code>: product id mapping, server fns</td><td>app catalog data + thin server fns</td><td><span class="chip stay">stays</span></td></tr>
+    <tr><td>SC <code>native_purchase.rs</code> (account token, attribution)</td><td>412</td><td><code>server::claims</code></td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>SC <code>purchase_custody.rs</code> (original-account owner)</td><td>300</td><td>SC's own <code>Store</code> impl (tied to its privacy functions)</td><td><span class="chip stay">stays</span></td></tr>
+    <tr><td>SC <code>native_pending.rs</code> (receipt checkpoints)</td><td>679</td><td><code>native::pending</code>, storage behind a trait (SC keeps g3-save)</td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>SC <code>store.rs</code> (purchase and restore entry)</td><td>~200</td><td><code>native::coordinator</code>; paywall UI stays</td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>SC <code>cloud.rs</code> entitlements endpoint, <code>storage.rs</code> device record</td><td>—</td><td>use crate types; logic stays</td><td><span class="chip stay">stays</span></td></tr>
+    <tr><td>GP <code>app_store_jws.rs</code></td><td>528</td><td><code>apple_jws</code> (client + server)</td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>GP <code>app_store.rs</code>, <code>app_store_notifications.rs</code></td><td>1,040</td><td><code>server::app_store</code> (subscription state, Notifications V2 route)</td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>GP <code>stripe_gateway.rs</code>, <code>stripe_webhook.rs</code></td><td>2,245</td><td><code>server::stripe</code> (gateway trait, idempotency, retries, event routing)</td><td><span class="chip move">moves</span></td></tr>
+    <tr><td>GP <code>server_impl.rs</code></td><td>1,635</td><td>checkout, portal and idempotency helpers move; <code>User</code>, return targets and account URLs stay</td><td><span class="chip move">splits</span></td></tr>
+    <tr><td>GP <code>membership.rs</code> (plans, trial view, paid-feature gate)</td><td>721</td><td>app policy, reading crate types</td><td><span class="chip stay">stays</span></td></tr>
+    <tr><td>Play on-device signature check, license keys, trial clock, standalone binary</td><td>—</td><td><code>native</code>, <code>license</code>, <code>server::license_keys</code>, <code>bin</code></td><td><span class="chip new">new</span></td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Decisions</h2>
+  <div class="scroll"><table>
+    <tr><th>Question</th><th>Recommendation</th><th>Why</th></tr>
+    <tr><td>Stripe client</td><td><span class="chip new">changed</span> Stripe's REST API over reqwest, pinned to <code>2026-08-26.dahlia</code></td><td>One HTTP stack for every provider and no release-candidate pin. Greenside's gateway behaviour (idempotency, retries, replayed-session fallback) is kept.</td></tr>
+    <tr><td>Crypto</td><td><span class="chip new">added</span> ring for TLS, token signing and webhook HMACs</td><td>No aws-lc enters through the crate, so no NASM on Windows and no two-backend panic.</td></tr>
+    <tr><td>Apple verification</td><td>Greenside's chain check for every JWS, plus SC's Server API call</td><td>Strongest of the two, and Swift Circuits gains refund notifications its docs list as pending.</td></tr>
+    <tr><td><code>jsonwebtoken</code></td><td>Version 10 with <code>aws_lc_rs</code> everywhere</td><td>SC's comment: SurrealDB turns on aws_lc_rs, and mixing backends panics. Greenside moves off 9.3.1.</td></tr>
+    <tr><td>Where records live</td><td><span class="chip new">changed</span> A <code>Store</code> trait. Swift Circuits and Greenside each implement it over their own tables. The crate's SurrealDB store serves new apps and the standalone server, and is built in step 6.</td><td>No data migration for live Greenside subscriptions. Moving them to an entitlement table can come later, on its own.</td></tr>
+    <tr><td>Account-bound endpoints</td><td>Stay as thin server fns in each app that call <code>PaymentsService</code></td><td>They need the app's session and <code>User</code>. Webhook and license routes need neither, so the crate ships those as an axum router.</td></tr>
+    <tr><td>Apps with no server</td><td>One <code>g3-payments-server</code> binary on the same machine, configured with several apps</td><td>SkiCut and Tally need a Stripe webhook and license activation somewhere. One binary serves both, and any later serverless app.</td></tr>
+    <tr><td>Where Tally keeps its license</td><td>In per-machine app data, never inside the books file</td><td>The books file is shared between computers. A license inside it would carry one machine's activation to every computer that opens the books.</td></tr>
+    <tr><td>What happens when Tally's trial ends</td><td>The books go read-only: open, view, run reports, export. Only editing and downloads need the license.</td><td>It's someone's financial records. Locking a person out of their own books would be the wrong default, and they'd lose trust in the app.</td></tr>
+    <tr><td>Ad Sentinel purchases</td><td>Checked on the phone: StoreKit JWS via <code>apple_jws</code>, Play via the purchase signature</td><td>No server to run. A trial clock from <code>license</code> gives the 14 days; the unlock is a store purchase.</td></tr>
+    <tr><td>Microsoft Store</td><td>Leave out for now; <code>Provider</code> gets room for it</td><td>SkiCut sells directly first.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Rules that keep live apps working</h2>
+  <ul>
+    <li><b>Same webhook URLs.</b> <code>/api/v1/stripe_webhooks</code> and <code>/api/v1/app_store_notifications</code> stay where they are, so nothing changes in the Stripe dashboard or App Store Connect.</li>
+    <li><b>Same wire format.</b> <code>EntitlementSnapshot</code> serializes byte-for-byte as today. Phones already store it (<code>swift-circuits-device-purchases-v1</code>) and cache it. A fixture test pins the JSON.</li>
+    <li><b>Old clients survive new fields.</b> <code>Provider</code> gains <code>LicenseKey</code> and a <code>#[serde(other)] Unknown</code> catch-all; <code>expires_at_unix</code> is optional and skipped when empty.</li>
+    <li><b>One Stripe account, many apps.</b> Every checkout carries <code>metadata.g3_app</code>; each endpoint ignores other apps' events and still answers 200.</li>
+    <li><b>Schema changes are additive.</b> Swift Circuits ships a reviewed SurrealKit rollout plan (its AGENTS.md rule); the old image can still run against the new schema, so rollback is a redeploy.</li>
+    <li><b>Server deps stay optional.</b> CI builds with no features and for <code>wasm32</code> so Stripe or SurrealDB never leak into a client build.</li>
+  </ul>
+</section>
+<section>
+  <h2>Steps, in order</h2>
+  <p class="small">All work commits straight to <code>main</code> in each repo. Steps 4 and 5 can run side by side once step 3 lands; 6 and 7 can run side by side once step 2 lands.</p>
+  <ol class="steps">
+    <li><div><h3>Create the repo</h3><ul>
+      <li><code>g3techhq/g3-payments</code> with g3-cache's scaffolding, version 0.1.0, the feature list above.</li>
+      <li>Local patch entry in <code>Projects/.cargo/config.toml</code>; git patch entry in each app manifest.</li>
+      <li>CI: no-features build, <code>wasm32</code> build, iOS/Android target lint, each feature alone, all features.</li></ul></div></li>
+    <li><div><h3>Move the shared core</h3><ul>
+      <li><code>entitlements</code> from g3-entitlements with its tests, plus the forward-compatible <code>Provider</code> and <code>expires_at_unix</code>.</li>
+      <li><code>catalog</code> type; <code>apple_jws</code> from Greenside with its <code>testdata</code> fixtures and Apple Root CA G3 cert.</li>
+      <li>JSON fixture test for today's snapshot format.</li></ul></div></li>
+    <li><div><h3>Move the server side <span class="chip move">done</span></h3><ul>
+      <li><code>server::stripe</code> from Greenside's gateway and webhook, with a one-time Checkout mode built from SC's flow (paid-session check, async success and failure, refunds).</li>
+      <li><code>server::app_store</code> merging SC verification with Greenside's subscription state and notifications; <code>server::play</code> from SC.</li>
+      <li><code>Store</code> trait, <code>server::claims</code> and custody from SC, SurrealDB implementation and its <code>.surql</code> schema files.</li>
+      <li>axum router for webhooks and license routes; every test from both apps comes along.</li></ul></div></li>
+    <li><div><h3>Switch Swift Circuits</h3><ul>
+      <li>Delete <code>crates/g3-entitlements</code>; imports become <code>g3_payments::</code>.</li>
+      <li><code>payments.rs</code>, <code>native_purchase.rs</code>, <code>purchase_custody.rs</code>, <code>native_pending.rs</code> and <code>store.rs</code> shrink to catalog data, thin server fns and UI.</li>
+      <li>Mount the router; wire App Store Notifications V2 (new for this app).</li>
+      <li>SurrealKit rollout plan for any table changes; update <code>docs/accounts-payments.md</code> and <code>docs/architecture.md</code>.</li></ul></div></li>
+    <li><div><h3>Switch Greenside Partee</h3><ul>
+      <li><code>billing/</code> keeps <code>membership.rs</code>, <code>server.rs</code> and the app half of <code>server_impl.rs</code>; the rest is deleted.</li>
+      <li>Implement <code>Store</code> over the existing <code>User</code> subscription fields. No data migration.</li>
+      <li><code>jsonwebtoken</code> 9.3.1 → 10 with <code>aws_lc_rs</code>.</li></ul></div></li>
+    <li><div><h3>Build the new pieces</h3><ul>
+      <li><code>license</code>: trial clock with clock-rollback guard, Ed25519 license file check, activation client, fail-open 30-day re-check.</li>
+      <li><code>server::surreal</code>: the Store on SurrealDB, designed together with the license tables (moved here from step 3).</li>
+      <li><code>server::license_keys</code>: key issue on paid checkout, machine-limited activation, signing key from an env secret, revoke on refund.</li>
+      <li><code>native</code>: on-device Play signature check beside the StoreKit check.</li>
+      <li><code>g3-payments-server</code> binary: multi-app config file, Docker image like the other servers.</li></ul></div></li>
+    <li><div><h3>Add SkiCut, Tally and Ad Sentinel</h3><ul>
+      <li>SkiCut: <code>license</code> feature, trial banner, license entry screen, Stripe product, deploy the standalone server behind your proxy.</li>
+      <li>Tally: the same <code>license</code> setup and a second Stripe product on that server. License stored in app data, not the books file. Read-only mode after the trial.</li>
+      <li>Ad Sentinel: <code>native</code> + trial clock, Play product (iOS later), paywall after day 14. Sideloaded builds can take a Stripe license instead.</li></ul></div></li>
+    <li><div><h3>Test in every sandbox, then deploy</h3><ul>
+      <li>Stripe test mode through <code>stripe listen</code>: buy, async payment, refund, subscription renew, cancel, portal.</li>
+      <li>StoreKit sandbox and Play license testers: buy, restore, refund, signed-out purchase.</li>
+      <li>Deploy order: Swift Circuits and Greenside (each schema rollout first), then the standalone server, then the two new app builds.</li>
+      <li>Watch Stripe's webhook delivery page and App Store notification history for a day after each deploy.</li></ul></div></li>
+  </ol>
+</section>
+
+<section>
+  <h2>Risks</h2>
+  <div class="grid2">
+    <div class="card"><h3><span class="chip risk">high</span> Greenside renewals</h3><p class="small">Live subscriptions renew through the webhook. A routing bug means a paying member is shown as lapsed. Mitigation: the <code>Store</code> trait keeps its data where it is, and its existing webhook tests must pass unchanged before deploy.</p></div>
+    <div class="card"><h3><span class="chip risk">high</span> Swift Circuits device records</h3><p class="small">Phones hold serialized snapshots. A format change re-locks paid content. Mitigation: the JSON fixture test and the <code>Unknown</code> catch-all.</p></div>
+    <div class="card"><h3><span class="chip stay">medium</span> Stripe rewrite in SC</h3><p class="small">SC moves from raw <code>reqwest</code> to <code>async-stripe</code>. Mitigation: replay SC's webhook test payloads through the new handler.</p></div>
+    <div class="card"><h3><span class="chip stay">medium</span> Doing it all at once</h3><p class="small">Two live apps change in the same window. Mitigation: deploy them a day apart even though the code lands together; every schema change is additive so rollback is a redeploy.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Open questions for you</h2>
+  <ul>
+    <li>Domain for the standalone server, for example <code>pay.</code> on your main domain.</li>
+    <li>Ad Sentinel price and trial in Play: a $10 one-time unlock after a 14-day clock, or the same free-then-unlock model as Swift Circuits.</li>
+    <li>Machine limit per SkiCut and Tally license (3 is common). Tally's books are shared between computers, so a household may need more than one.</li>
+    <li>Whether Greenside's subscription records should move to the shared entitlement table later, or stay on <code>User</code> for good.</li>
+  </ul>
+</section>
+</div>
