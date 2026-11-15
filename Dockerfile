@@ -9,6 +9,9 @@ COPY ci/server.Cargo.lock Cargo.lock
 RUN cargo build --release --locked --features standalone --bin g3-payments-server
 
 FROM debian:trixie-slim
+LABEL org.opencontainers.image.source="https://github.com/g3techhq/g3-payments" \
+      org.opencontainers.image.description="g3-payments-server: Stripe Checkout and license keys for apps without a server" \
+      org.opencontainers.image.licenses="MIT OR Apache-2.0"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*

@@ -8,6 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- README: running `g3-payments-server` for any app (image, settings, Stripe
+  setup, routes). The image is labelled with its source repository.
 - `license` (feature `license`): the 14-day trial clock, which never runs
   backwards when the clock is set back; the Ed25519-signed license file,
   checked offline and bound to one app and machine; `LicenseState`, kept in
